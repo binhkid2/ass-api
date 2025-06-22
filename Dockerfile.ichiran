@@ -18,6 +18,11 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
+# Clone ichiran repository first
+RUN git clone https://github.com/tshatrov/ichiran.git /tmp/ichiran \
+    && cp -r /tmp/ichiran/* . \
+    && rm -rf /tmp/ichiran
+
 # Install Quicklisp
 RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
     && sbcl --load quicklisp.lisp \
@@ -25,18 +30,15 @@ RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
            --eval "(ql:add-to-init-file)" \
            --quit
 
-# Clone ichiran repository
-RUN git clone https://github.com/tshatrov/ichiran.git .
-
 # Install ichiran dependencies via Quicklisp
 RUN echo '(ql:quickload :ichiran)' > /tmp/load-ichiran.lisp \
     && sbcl --load /tmp/load-ichiran.lisp --quit || true
 
 # Download and prepare dictionary data
 RUN mkdir -p data && cd data \
-    && wget http://ftp.monash.edu.au/pub/nihongo/JMdict_e.gz \
-    && wget http://www.edrdg.org/kanjidic/kanjidic2.xml.gz \
-    && gunzip *.gz
+    && wget -q http://ftp.monash.edu.au/pub/nihongo/JMdict_e.gz \
+    && wget -q http://www.edrdg.org/kanjidic/kanjidic2.xml.gz \
+    && gunzip *.gz || true
 
 # Create database initialization script
 RUN mkdir -p /docker-entrypoint-initdb.d
