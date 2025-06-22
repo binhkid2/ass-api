@@ -1,0 +1,60 @@
+# Dockerfile for Ichiran
+FROM ubuntu:22.04
+
+# Avoid prompts from apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    sbcl \
+    git \
+    curl \
+    wget \
+    unzip \
+    postgresql-client \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory
+WORKDIR /app
+
+# Install Quicklisp
+RUN curl -O https://beta.quicklisp.org/quicklisp.lisp \
+    && sbcl --load quicklisp.lisp \
+           --eval "(quicklisp-quickstart:install)" \
+           --eval "(ql:add-to-init-file)" \
+           --quit
+
+# Clone ichiran repository
+RUN git clone https://github.com/tshatrov/ichiran.git .
+
+# Install ichiran dependencies via Quicklisp
+RUN echo '(ql:quickload :ichiran)' > /tmp/load-ichiran.lisp \
+    && sbcl --load /tmp/load-ichiran.lisp --quit || true
+
+# Download and prepare dictionary data
+RUN mkdir -p data && cd data \
+    && wget http://ftp.monash.edu.au/pub/nihongo/JMdict_e.gz \
+    && wget http://www.edrdg.org/kanjidic/kanjidic2.xml.gz \
+    && gunzip *.gz
+
+# Create database initialization script
+RUN mkdir -p /docker-entrypoint-initdb.d
+
+# Copy ichiran setup scripts
+COPY scripts/setup-ichiran.lisp /app/
+COPY scripts/ichiran-cli.sh /usr/local/bin/ichiran-cli
+RUN chmod +x /usr/local/bin/ichiran-cli
+
+# Create settings file
+COPY scripts/settings.lisp /app/
+
+# Expose port for potential web interface
+EXPOSE 4242
+
+# Wait for database and initialize
+COPY scripts/wait-for-db.sh /app/
+RUN chmod +x /app/wait-for-db.sh
+
+# Initialize ichiran when container starts
+CMD ["/app/wait-for-db.sh", "postgres", "5432", "--", "sbcl", "--load", "setup-ichiran.lisp", "--eval", "(sb-thread:join-thread (sb-thread:make-thread (lambda () (loop (sleep 1)))))", "--quit"]
